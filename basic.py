@@ -1,4 +1,10 @@
 ##############################
+# IMPORTS
+##############################
+
+from error_arrows import *
+
+##############################
 # CONSTANTS
 ##############################
 
@@ -18,6 +24,7 @@ class Error:
     def __str__(self):
         result =  f'{self.error_name}: {self.details}\n'
         result += f'File {self.pos_start.fn}, line {self.pos_start.ln + 1}'
+        result += '\n\n' + error_arrows(self.pos_start.text, self.pos_start, self.pos_end)
         return result
 
 class IllegalCharError(Error):
@@ -27,6 +34,10 @@ class IllegalCharError(Error):
 class IllegalNumError(Error):
     def __init__(self, pos_start, pos_end, details):
         super().__init__(pos_start, pos_end, 'Illegal Number', details)
+
+class InvalidSyntaxError(Error):
+    def __init__(self, pos_start, pos_end, details):
+        super().__init__(pos_start, pos_end, 'Invalid Syntax', details)
 
 ##############################
 # POSITION
@@ -46,7 +57,7 @@ class Position:
 
         if current_char == '\n':
             self.ln += 1
-            self.col == 0
+            self.col = 0
 
         return self
 
@@ -67,13 +78,25 @@ TT_LPAREN = 'LPAREN'
 TT_RPAREN = 'RPAREN'
 
 class Token:
-    def __init__(self, type_, value=None):
+    def __init__(self, type_=None, value=None, pos_start=None, pos_end=None):
         self.type = type_
         self.value = value
 
+        if pos_start:
+            self.pos_start = pos_start.copy()
+            self.pos_end = pos_start.copy()
+            self.pos_end.advance()
+
+        if pos_end:
+            self.pos_end = pos_end.copy()
+
     def __repr__(self):
-        if self.value: return f'{self.type}:{self.value}'
-        return f'{self.type}'
+        result = ''
+        if self.type: 
+            result += f'{self.type}'
+            if self.value:
+                result += f':{self.value}'
+        return result
 
 ##############################
 # LEXER
@@ -148,11 +171,86 @@ class Lexer:
             return num_str, point_count
     
 ##############################
-# LEXER
+# NODES
+##############################
+
+class NumberNode:
+    def __init__(self, token):
+        self.token = token
+
+    def __repr__(self):
+        return f'{self.token}'
+
+class BinOpNode:
+    def __init__(self, left_node, op_token, right_node):
+        self.left_node = left_node
+        self.op_token = op_token
+        self.right_node = right_node
+
+    def __repr__(self):
+        return f'({self.left_node}, {self.op_token}, {self.right_node})'
+
+##############################
+# PARSER RESULT
+##############################
+
+
+
+##############################
+# PARSER
+##############################
+
+class Parser:
+    def __init__(self, tokens):
+        self.tokens = tokens
+        self.token_idx = -1
+        self.current_token = Token()
+        self.advance()
+
+    def advance(self):
+        self.token_idx += 1
+        if self.token_idx < len(self.tokens):
+            self.current_token = self.tokens[self.token_idx]
+        return self.current_token
+
+    def parse(self):
+        return self.expr()
+
+    def factor(self):
+        token = self.current_token
+
+        if token.type in (TT_INT, TT_FLOAT):
+            self.advance()
+
+        return NumberNode(token)
+
+    def term(self):
+        return self.bin_op(self.factor, (TT_MUL, TT_DIV))
+
+    def expr(self):
+        return self.bin_op(self.term, (TT_PLUS, TT_MINIS))
+
+    def bin_op(self, func, ops):
+        left_node = func()
+
+        while self.current_token.type in ops:
+            op_token = self.current_token
+            self.advance()
+            right_node = func()
+            left_node = BinOpNode(left_node, op_token, right_node)
+
+        return left_node
+
+##############################
+# RUN
 ##############################
 
 def run(fn, text):
     lexer = Lexer(fn, text)
     tokens, error = lexer.make_tokens()
+    if error: 
+        return None, error
+    parser = Parser(tokens)
+    ast = parser.parse()
 
-    return tokens, error
+    return ast, error
